@@ -36,8 +36,8 @@ export class AssetManagerStack extends Stack {
 
     // --- Lambda functions for S3 uploads
 
-    const s3PresignFunction = new NodejsFunction(this, "S3PresignedUpload", {
-      entry: path.join(__dirname, "..", "lambda", "s3PresignedUrl", "index.ts"),
+    const getPresignedUploadUrlFunction = new NodejsFunction(this, "GetPresignedUploadUrlV1", {
+      entry: path.join(__dirname, "..", "lambda/GetPresignedUploadUrlV1/index.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_24_X,
       environment: {
@@ -45,16 +45,16 @@ export class AssetManagerStack extends Stack {
       },
     });
 
-    bucket.grantPut(s3PresignFunction);
+    bucket.grantPut(getPresignedUploadUrlFunction);
     // NOTE: Use grantWrite if `delete` permission is needed
 
     // TODO: Migrate to API Gateway
-    const s3PresignFunctionUrl = s3PresignFunction.addFunctionUrl({
+    const getPresignedUploadUrlFunctionUrl = getPresignedUploadUrlFunction.addFunctionUrl({
       authType: lambda.FunctionUrlAuthType.NONE,
     });
 
     new cdk.CfnOutput(this, "authedFunctionUrlOutput", {
-      value: s3PresignFunctionUrl.url,
+      value: getPresignedUploadUrlFunctionUrl.url,
     })
 
     // TODO: Add Lambda function that handles the actual upload operation
@@ -69,6 +69,6 @@ export class AssetManagerStack extends Stack {
     //   // removalPolicy: cdk.RemovalPolicy.RETAIN,
     //   removalPolicy: cdk.RemovalPolicy.DESTROY,
     // });
-    
+
   }
 }

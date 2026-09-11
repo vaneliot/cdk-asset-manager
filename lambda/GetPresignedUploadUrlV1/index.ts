@@ -42,3 +42,15 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     }),
   };
 };
+
+/*
+// Sample code for client - for uploading
+
+const { presignedUrl } = await fetch('<your-function-url>', {
+  method: 'POST',
+  body: JSON.stringify({ filename: file.name }),
+}).then(r => r.json());
+
+await fetch(presignedUrl, { method: 'PUT', body: file });
+
+*/
