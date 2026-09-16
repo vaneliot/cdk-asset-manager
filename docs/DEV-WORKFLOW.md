@@ -14,3 +14,16 @@ make deploy
 
 - Writes something like `{ "AssetManagerStack": { "someFunctionUrlOutput": "https://..." } }` to a local `outputs.json`.
 - Only goes stale if a resource behind an output is deleted/recreated (e.g. the Function URL, which gets a new URL if the function is deleted and re-added).
+
+## 2. `samconfig.toml` — stop repeating `-t cdk.out/AssetManagerStack.template.json`
+
+SAM's own config file, not a workaround. Lets `sam local invoke` default its template path.
+
+```toml
+version = 0.1
+
+[default.local_invoke.parameters]
+template_file = "cdk.out/AssetManagerStack.template.json"
+```
+
+Once this exists, `-t ...` is never needed again on any `sam local invoke` call.
