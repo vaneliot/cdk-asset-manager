@@ -69,3 +69,55 @@ Edit `bucket.name`/`object.key` afterward to match whatever you're testing.
 sam local invoke UpsertAssetV1 --event events/UpsertAssetV1.json --env-vars env.local.json
 ```
 **To do:** `--env-vars` isn't wired into the `Makefile`'s `invoke`/`invoke-fast` targets yet (no `ENV_VARS` variable) — use the raw `sam` command above until that's added.
+
+## 4. `cdk deploy` using the non-root IAM user
+
+Deploys must use a dedicated non-root IAM user profile (`<your-iam-user-profile>` below) — not the account's root-tied profile (avoid for routine work) or the default profile. `make deploy` checks `AWS_PROFILE` is actually set first and fails fast with a clear message if not, rather than silently deploying with whatever's active.
+
+```bash
+export AWS_PROFILE=<your-iam-user-profile>
+make deploy
+```
+
+**Background, for later reference:**
+- `<your-iam-user-profile>` should be a plain IAM user authenticated via a **static access key** (`aws configure --profile <your-iam-user-profile>`) — chosen specifically because it doesn't expire, unlike the `aws login` browser flow (12-hour session cap, and also the likely cause of a `sam local invoke` `LoginRefreshRequired` error we hit when still using root).
+- It has exactly one policy attached, `CdkDeployAssumeRole` — grants `sts:AssumeRole` on the CDK bootstrap roles only (tagged `aws-cdk:bootstrap-role`), not broad permissions directly. The actual deploy permissions live on the bootstrap roles themselves (created once via `cdk bootstrap`, done under root).
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:ResourceTag/aws-cdk:bootstrap-role": [
+            "image-publishing",
+            "file-publishing",
+            "deploy",
+            "lookup"
+          ]
+        }
+      }
+    }
+  ]
+}
+```
+
+- This is also why a plain `aws cloudformation describe-stacks --profile <your-iam-user-profile>` fails with `AccessDenied` — that user has no direct CloudFormation permissions, only the ability to assume CDK's own roles. `cdk deploy`/`sam local invoke` work because they route through those roles; ad-hoc `aws` CLI queries with this profile generally won't, unless the policy is deliberately widened.
+
+**To do:** same profile should be used for `sam local invoke` when it needs real AWS credentials (real-env testing mode from the local-vs-real discussion), e.g. `sam local invoke UpsertAssetV1 --event events/UpsertAssetV1.real.json --profile <your-iam-user-profile>`.
+
+## 5. Other conventions, and open TODOs
+
+**Already in place, noted here for reference:**
+- **Shared AWS SDK client modules** — `lambda/shared/s3Client.ts`, `lambda/shared/dynamoClient.ts`. Each lambda that needs a client imports from here instead of declaring its own `new S3Client()`/`new DynamoDBDocumentClient()`. Not a runtime singleton across functions (each Lambda bundles its own copy), but is a singleton within one warm execution environment, and keeps client construction in one place if config (retries, endpoint override for LocalStack, etc.) is ever needed.
+- **`commonLambdaProps`** — a shared object (`{ runtime, handler }`) spread into each `NodejsFunction` definition in `asset-manager-stack.ts`, instead of repeating the same two lines per function.
+- **Jest discovers co-located tests** — `jest.config.js`'s `roots` is `['<rootDir>']` (Jest's actual default), so `*.test.ts` files next to source (e.g. `lambda/GetPresignedUploadUrlV1/getPresignedUploadUrl.test.ts`) are picked up, not just files under `test/`.
+- **Testing pattern per lambda** — thin `index.ts` handler (parses event, calls logic function, shapes response) + separate logic file with the real behavior, independently unit-testable with AWS SDK calls mocked (`jest.mock('@aws-sdk/s3-request-presigner')`, etc.) rather than hitting real AWS in unit tests.
+
+**Still to do:**
+- [ ] **Local, fully-offline testing (LocalStack)** — not set up yet. Would let `S3Client`/DynamoDB clients point at a local Docker-emulated AWS instead of the real account, via an `endpoint` override (best added to the shared client modules above, gated by an env var like `AWS_ENDPOINT_URL` so it's a no-op in real deployments).
+- [ ] **`.gitignore`: `cdk.context.json`** — CDK's auto-generated lookup cache isn't in there yet; add it if/when a context lookup (e.g. `Vpc.fromLookup`) gets introduced. (`outputs.json` is already ignored, from #1.)

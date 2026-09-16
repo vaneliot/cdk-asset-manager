@@ -21,6 +21,7 @@ help:
 	@echo "make invoke-fast NAME=<Fn> [EVENT=<file>]  same as invoke, skips cdk synth"
 
 deploy:
+	@test -n "$$AWS_PROFILE" || (echo "AWS_PROFILE is not set — export AWS_PROFILE=<your-iam-user-profile> first" && exit 1)
 	cdk deploy --outputs-file $(OUTPUTS_FILE)
 
 invoke:
