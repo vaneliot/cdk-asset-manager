@@ -27,7 +27,6 @@ export class AssetManagerStack extends Stack {
     // DynamoDB
     const table = new dynamodb.TableV2(this, 'AssetsTable', {
       partitionKey: { name: 'asset_key', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'created_at', type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(), // Serverless pay-per-request
       // removalPolicy: cdk.RemovalPolicy.RETAIN,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
