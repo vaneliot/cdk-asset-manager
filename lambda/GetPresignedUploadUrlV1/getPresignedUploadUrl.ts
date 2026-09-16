@@ -1,11 +1,10 @@
 // https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/javascript_s3_code_examples.html#actions
 
 // https://docs.aws.amazon.com/lambda/latest/dg/typescript-handler.html
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-
-export const s3Client = new S3Client();
+import { s3Client } from "../shared/s3Client";
 
 export const VALIDITY_SECONDS = 60 * 60
 
