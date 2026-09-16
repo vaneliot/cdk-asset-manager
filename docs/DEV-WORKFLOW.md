@@ -108,7 +108,11 @@ make deploy
 
 - This is also why a plain `aws cloudformation describe-stacks --profile <your-iam-user-profile>` fails with `AccessDenied` — that user has no direct CloudFormation permissions, only the ability to assume CDK's own roles. `cdk deploy`/`sam local invoke` work because they route through those roles; ad-hoc `aws` CLI queries with this profile generally won't, unless the policy is deliberately widened.
 
-**To do:** same profile should be used for `sam local invoke` when it needs real AWS credentials (real-env testing mode from the local-vs-real discussion), e.g. `sam local invoke UpsertAssetV1 --event events/UpsertAssetV1.real.json --profile <your-iam-user-profile>`.
+**Update:** `sam local invoke` now runs under this same non-root profile when testing against real resources, rather than a separate one — confirmed by AWS-side errors showing `<your-iam-user-profile>` as the caller identity.
+
+That surfaced a gap worth understanding: `sam local invoke` does **not** assume the Lambda's own execution role. Any AWS SDK call made inside the handler runs as *this IAM user*, not as the role CDK grants via `table.grantReadWriteData(...)` in `asset-manager-stack.ts`. So real-credential local testing needs its own permissions on `<your-iam-user-profile>`, layered on top of the `CdkDeployAssumeRole` policy above — separate from, and in addition to, whatever the deployed Lambda's role has.
+
+Added so far, via IAM console (inline policy, not CDK): `dynamodb:DeleteItem` on `AssetsTable`, needed to locally test `DeleteAssetV1` against the real table. Expect to add the equivalent for `PutItem`/`GetItem` if `UpsertAssetV1` gets the same real-credential local-testing treatment.
 
 ## 5. Other conventions, and open TODOs
 
@@ -121,3 +125,4 @@ make deploy
 **Still to do:**
 - [ ] **Local, fully-offline testing (LocalStack)** — not set up yet. Would let `S3Client`/DynamoDB clients point at a local Docker-emulated AWS instead of the real account, via an `endpoint` override (best added to the shared client modules above, gated by an env var like `AWS_ENDPOINT_URL` so it's a no-op in real deployments).
 - [ ] **`.gitignore`: `cdk.context.json`** — CDK's auto-generated lookup cache isn't in there yet; add it if/when a context lookup (e.g. `Vpc.fromLookup`) gets introduced. (`outputs.json` is already ignored, from #1.)
+- [ ] **Model dev-identity permissions through CDK, not the IAM console** — `CdkDeployAssumeRole` (#4) and the DynamoDB inline policy (#4) were both added via console click-ops, which conflicts with this project's stated goal (root `CLAUDE.md`: "Everything provisioned through CDK and committed to git — no ClickOps"). Acceptable stopgap for now since these are personal dev-identity permissions, not part of the deployed app's own infrastructure — but revisit once the set of permissions needed for real-credential local testing stabilizes, e.g. as a small `iam.Policy` construct attached to the dev user, defined and committed alongside the rest of the stack.
