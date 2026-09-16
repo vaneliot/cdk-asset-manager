@@ -9,3 +9,6 @@ cdk.out
 
 # Local environment overrides
 .env
+
+# CDK deploy outputs (regenerated per deploy, not secret, just environment-specific)
+outputs.json

@@ -1,15 +1,23 @@
-# Welcome to your CDK TypeScript project
+# Asset Manager
 
-You should explore the contents of this project. It demonstrates a CDK app with an instance of a stack (`AssetManagerStack`)
-which contains an Amazon SQS queue that is subscribed to an Amazon SNS topic.
+A CDK (TypeScript) app for uploading files via presigned S3 URLs, with a DynamoDB record kept in sync automatically as files are added or removed.
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+See [docs/ARCHITECTURE-DIAGRAM.md](docs/ARCHITECTURE-DIAGRAM.md) for how the pieces fit together.
 
-## Useful commands
+## Setup
 
-* `npm run build`   type-check the project
-* `npm run watch`   watch for changes and type-check
-* `npm run test`    perform the jest unit tests
-* `cdk deploy`      deploy this stack to your default AWS account/region
-* `cdk diff`        compare deployed stack with current state
-* `cdk synth`       emits the synthesized CloudFormation template
+Deploys and local testing should use a dedicated non-root IAM user, not `default` or root — see [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) for why and how to set one up.
+
+## Quick start
+
+Type-check the project:
+```bash
+npm run build
+```
+
+Run all Jest unit tests:
+```bash
+npm test
+```
+
+For everything else — deploying, local Lambda testing, the full command reference — see **[docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**, the source of truth for day-to-day usage.
