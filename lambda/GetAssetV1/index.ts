@@ -7,12 +7,7 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { s3Client } from '../shared/s3Client';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-// Mirrors what UpsertAssetV1 actually writes — extend both together if the schema grows.
-// TODO: Relocate to its own file so the Asset-related type is in one place.
-type AssetRecord = {
-  asset_key: string;
-  created_at: string;
-};
+import { AssetRecord } from '../shared/asset';
 
 type GetAssetSuccessBody = AssetRecord & {
   downloadUrl: string;

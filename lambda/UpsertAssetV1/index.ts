@@ -2,6 +2,7 @@ import { S3Handler } from 'aws-lambda';
 
 import { docClient } from '../shared/dynamoClient';
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
+import { AssetRecord } from '../shared/asset';
 
 export const handler: S3Handler = async (event) => {
   for (const record of event.Records) {
@@ -13,13 +14,14 @@ export const handler: S3Handler = async (event) => {
 
     const key = record.s3.object.key
 
+    const item: AssetRecord = {
+      asset_key: key,
+      created_at: new Date().toISOString(),
+    }
+
     const params = {
       TableName: process.env.TABLE_NAME!,
-      // TODO: Types
-      Item: {
-        asset_key: key,
-        created_at: new Date().toISOString(),
-      }
+      Item: item,
     }
 
     try {
