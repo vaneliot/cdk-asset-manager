@@ -24,16 +24,17 @@ import * as path from 'path';
 
 import { Construct } from 'constructs';
 
-// NOTE: Conventional sequence in declaring constructs
-// - Data/storage first — S3, DynamoDB (things other resources will reference)
-// - Compute next — Lambdas that read those storage resources' names/ARNs
-// - Wiring/permissions — event notifications, grantX calls that connect compute to storage
-// - Entry points last — API Gateway (or CloudFront, etc.) — since it's the "front door" that ties together compute you've already declared
+// NOTE: Organized by feature, in roughly the order a user would move through them
+// (sign in -> upload -> [sync happens automatically] -> retrieve), rather than by
+// declare-everything-then-wire-everything. Each section co-locates a resource with
+// its own permissions/wiring, since that's the more readable unit at this scale.
+// Storage is foundational and sits above every feature that references it.
 
 export class AssetManagerStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
+    // --- LEFTOVER CDK-INIT SCRATCH/BOILERPLATE (SQS, SNS) — not part of the upload pipeline
     const queue = new sqs.Queue(this, 'AssetManagerQueue', {
       visibilityTimeout: Duration.seconds(300)
     });
@@ -42,7 +43,25 @@ export class AssetManagerStack extends Stack {
 
     topic.addSubscription(new subs.SqsSubscription(queue));
 
-    // Cognito
+    // --- STORAGE (DynamoDB, S3)
+    // https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/javascript_s3_code_examples.html
+
+    const table = new dynamodb.TableV2(this, 'AssetsTableV2', {
+      partitionKey: { name: 'asset_key', type: dynamodb.AttributeType.STRING },
+      billing: dynamodb.Billing.onDemand(), // Serverless pay-per-request
+      // removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const bucket = new s3.Bucket(this, 'AssetsBucket', {
+      // accessControl: s3.BucketAccessControl.BUCKET_OWNER_FULL_CONTROL,
+      // encryption: s3.BucketEncryption.S3_MANAGED,
+      // blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      // removalPolicy: RemovalPolicy.DESTROY,
+      // autoDeleteObjects: true,
+    });
+
+    // --- AUTH (Cognito)
     const pool = new cognito.UserPool(this, 'AssetManagerPool', {
       selfSignUpEnabled: true,        // users can register themselves, not just admin-created
       signInAliases: { email: true }, // sign in with email instead of a username
@@ -88,27 +107,12 @@ export class AssetManagerStack extends Stack {
       userPoolClients: [poolClient],
     });
 
-    // DynamoDB
-    const table = new dynamodb.TableV2(this, 'AssetsTableV2', {
-      partitionKey: { name: 'asset_key', type: dynamodb.AttributeType.STRING },
-      billing: dynamodb.Billing.onDemand(), // Serverless pay-per-request
-      // removalPolicy: cdk.RemovalPolicy.RETAIN,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    // --- API GATEWAY SHELL — features below attach their own routes to this
+    const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
+      defaultAuthorizer: authorizer, // enforce Cognito auth on every route by default
     });
 
-    // --- S3
-    // https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/javascript_s3_code_examples.html
-
-    const bucket = new s3.Bucket(this, 'AssetsBucket', {
-      // accessControl: s3.BucketAccessControl.BUCKET_OWNER_FULL_CONTROL,
-      // encryption: s3.BucketEncryption.S3_MANAGED,
-      // blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      // removalPolicy: RemovalPolicy.DESTROY,
-      // autoDeleteObjects: true,
-    });
-
-    // --- Lambda functions for S3 uploads
-
+    // --- UPLOAD FEATURE (Lambda, S3, API Gateway)
     const getPresignedUploadUrlFunction = new NodejsFunction(this, "GetPresignedUploadUrlV1", {
       entry: path.join(__dirname, "..", "lambda/GetPresignedUploadUrlV1/index.ts"),
       handler: "handler",
@@ -132,6 +136,17 @@ export class AssetManagerStack extends Stack {
 
     const createPresignedUploadUrlLambdaIntegration = new HttpLambdaIntegration('CreatePresignedUploadUrlFunctionUrl', getPresignedUploadUrlFunction);
 
+    httpApi.addRoutes({
+      path: '/create-upload-url',
+      methods: [ apigwv2.HttpMethod.POST ],
+      integration: createPresignedUploadUrlLambdaIntegration,
+
+      // authorizer examples
+      // authorizer, // add this to enforce Cognito auth on a specific endpoint
+      // authorizer: new apigwv2.HttpNoneAuthorizer(),  // add this if the whole API is gated, and a particular endpoint needs to be public
+    });
+
+    // --- ASSET SYNC FEATURE (Lambda, S3, DynamoDB) — reactive, not client-facing: keeps DynamoDB in sync with S3
     // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_s3_notifications-readme.html
 
     const upsertAssetFunction = new NodejsFunction(this, 'UpsertAssetV1', {
@@ -154,6 +169,13 @@ export class AssetManagerStack extends Stack {
       },
     });
 
+    bucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(upsertAssetFunction));
+    bucket.addEventNotification(s3.EventType.OBJECT_REMOVED, new s3n.LambdaDestination(deleteAssetFunction));
+
+    table.grantReadWriteData(upsertAssetFunction)
+    table.grantReadWriteData(deleteAssetFunction)
+
+    // --- RETRIEVAL FEATURE (Lambda, S3, DynamoDB, API Gateway)
     const getAssetFunction = new NodejsFunction(this, 'GetAssetV1', {
       entry: path.join(__dirname, "..", "lambda/GetAssetV1/index.ts"),
       handler: 'handler',
@@ -164,30 +186,10 @@ export class AssetManagerStack extends Stack {
       },
     });
 
-    const getAssetLambdaIntegration = new HttpLambdaIntegration('GetAssetFunctionIntegration', getAssetFunction);
-
-    bucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(upsertAssetFunction));
-    bucket.addEventNotification(s3.EventType.OBJECT_REMOVED, new s3n.LambdaDestination(deleteAssetFunction));
     bucket.grantRead(getAssetFunction);
-
-    table.grantReadWriteData(upsertAssetFunction)
-    table.grantReadWriteData(deleteAssetFunction)
     table.grantReadData(getAssetFunction);
 
-    // API Gateway
-    const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
-      defaultAuthorizer: authorizer, // add this to enforce Cognito auth
-    });
-
-    httpApi.addRoutes({
-      path: '/create-upload-url',
-      methods: [ apigwv2.HttpMethod.POST ],
-      integration: createPresignedUploadUrlLambdaIntegration,
-
-      // authorizer examples
-      // authorizer, // add this to enforce Cognito auth on a specific endpoint
-      // authorizer: new apigwv2.HttpNoneAuthorizer(),  // add this if the whole API is gated, and a particular endpoint needs to be public
-    });
+    const getAssetLambdaIntegration = new HttpLambdaIntegration('GetAssetFunctionIntegration', getAssetFunction);
 
     httpApi.addRoutes({
       path: '/assets/{assetKey}',
