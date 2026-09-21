@@ -154,11 +154,25 @@ export class AssetManagerStack extends Stack {
       },
     });
 
+    const getAssetFunction = new NodejsFunction(this, 'GetAssetV1', {
+      entry: path.join(__dirname, "..", "lambda/GetAssetV1/index.ts"),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_24_X,
+      environment: {
+        ASSETS_BUCKET: bucket.bucketName,
+        TABLE_NAME: table.tableName,
+      },
+    });
+
+    const getAssetLambdaIntegration = new HttpLambdaIntegration('GetAssetFunctionIntegration', getAssetFunction);
+
     bucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(upsertAssetFunction));
     bucket.addEventNotification(s3.EventType.OBJECT_REMOVED, new s3n.LambdaDestination(deleteAssetFunction));
+    bucket.grantRead(getAssetFunction);
 
     table.grantReadWriteData(upsertAssetFunction)
     table.grantReadWriteData(deleteAssetFunction)
+    table.grantReadData(getAssetFunction);
 
     // API Gateway
     const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
@@ -173,6 +187,12 @@ export class AssetManagerStack extends Stack {
       // authorizer examples
       // authorizer, // add this to enforce Cognito auth on a specific endpoint
       // authorizer: new apigwv2.HttpNoneAuthorizer(),  // add this if the whole API is gated, and a particular endpoint needs to be public
+    });
+
+    httpApi.addRoutes({
+      path: '/assets/{assetKey}',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: getAssetLambdaIntegration,
     });
 
     new cdk.CfnOutput(this, 'HttpApiUrl', { value: httpApi.apiEndpoint });
