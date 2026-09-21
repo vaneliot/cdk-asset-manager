@@ -31,8 +31,16 @@ import { Construct } from 'constructs';
 // its own permissions/wiring, since that's the more readable unit at this scale.
 // Storage is foundational and sits above every feature that references it.
 
+export interface AssetManagerStackProps extends StackProps {
+  // Cognito Hosted UI domain prefix — must be globally unique across ALL AWS
+  // accounts (see .env.example). Passed in via props rather than read from
+  // process.env directly here, per CDK's own guidance: env var lookups belong
+  // at the top of the app (bin/asset-manager.ts), not inside the Stack itself.
+  domainPrefix: string;
+}
+
 export class AssetManagerStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props: AssetManagerStackProps) {
     super(scope, id, props);
 
     // --- ORIGINAL SAMPLE CODE (SNS, SQS)
@@ -90,11 +98,9 @@ export class AssetManagerStack extends Stack {
       // }
     });
 
-    const DOMAIN_PREFIX = 'cdk-asset-manager-dev'
-
     // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_cognito-readme.html#domains
     const userPoolDomain = pool.addDomain('AssetManagerDomain', {
-      cognitoDomain: { domainPrefix: DOMAIN_PREFIX }, // must be globally unique across ALL AWS accounts
+      cognitoDomain: { domainPrefix: props.domainPrefix },
     });
 
     // In case you are to use a separate stack for auth, you may use this approach:
