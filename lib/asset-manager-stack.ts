@@ -66,7 +66,7 @@ export class AssetManagerStack extends Stack {
     const bucket = new s3.Bucket(this, 'AssetsBucket', {
       // accessControl: s3.BucketAccessControl.BUCKET_OWNER_FULL_CONTROL,
       // encryption: s3.BucketEncryption.S3_MANAGED,
-      // blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       // removalPolicy: RemovalPolicy.DESTROY,
       // autoDeleteObjects: true,
     });

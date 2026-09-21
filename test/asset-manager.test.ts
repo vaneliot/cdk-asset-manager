@@ -44,11 +44,19 @@ describe('storage', () => {
 
     // resourceCountIs: just asserts presence/count, no property inspection
     template.resourceCountIs('AWS::S3::Bucket', 1);
+  });
 
-    // NOTE: intentionally not asserting PublicAccessBlockConfiguration here —
-    // the bucket doesn't set blockPublicAccess in code at all, so there's
-    // nothing in the template to assert on. It currently relies entirely on
-    // the AWS account's own default. Add this assertion once that's fixed.
+  test('bucket blocks all public access — regression guard against it ever being loosened', () => {
+    const template = synth();
+
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
   });
 });
 
