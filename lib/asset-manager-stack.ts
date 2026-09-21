@@ -12,10 +12,11 @@ import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';  // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigatewayv2-readme.html
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';  // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigatewayv2_integrations-readme.html
 
+// import * as sns from 'aws-cdk-lib/aws-sns';
+// import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
+// import * as sqs from 'aws-cdk-lib/aws-sqs';
+
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as sns from 'aws-cdk-lib/aws-sns';
-import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
-import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -34,14 +35,15 @@ export class AssetManagerStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
-    // --- LEFTOVER CDK-INIT SCRATCH/BOILERPLATE (SQS, SNS) — not part of the upload pipeline
-    const queue = new sqs.Queue(this, 'AssetManagerQueue', {
-      visibilityTimeout: Duration.seconds(300)
-    });
+    // --- ORIGINAL SAMPLE CODE (SNS, SQS)
 
-    const topic = new sns.Topic(this, 'AssetManagerTopic');
+    // const queue = new sqs.Queue(this, 'AssetManagerQueue', {
+    //   visibilityTimeout: Duration.seconds(300)
+    // });
 
-    topic.addSubscription(new subs.SqsSubscription(queue));
+    // const topic = new sns.Topic(this, 'AssetManagerTopic');
+
+    // topic.addSubscription(new subs.SqsSubscription(queue));
 
     // --- STORAGE (DynamoDB, S3)
     // https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/javascript_s3_code_examples.html
