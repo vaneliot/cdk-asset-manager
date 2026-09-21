@@ -2,6 +2,12 @@ import { Duration, Stack, StackProps, RemovalPolicy } from 'aws-cdk-lib/core';
 
 import * as cdk from 'aws-cdk-lib/core';
 
+// Cognito
+// https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_cognito-readme.html
+// https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_cognito.UserPool.html
+import * as cognito from 'aws-cdk-lib/aws-cognito';
+import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
+
 // APIGW v2
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';  // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigatewayv2-readme.html
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';  // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigatewayv2_integrations-readme.html
@@ -35,6 +41,52 @@ export class AssetManagerStack extends Stack {
     const topic = new sns.Topic(this, 'AssetManagerTopic');
 
     topic.addSubscription(new subs.SqsSubscription(queue));
+
+    // Cognito
+    const pool = new cognito.UserPool(this, 'AssetManagerPool', {
+      selfSignUpEnabled: true,        // users can register themselves, not just admin-created
+      signInAliases: { email: true }, // sign in with email instead of a username
+      autoVerify: { email: true },    // Cognito emails a verification code automatically
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const SIGNIN_REDIRECT_URI = 'https://example.com/callback'
+
+    const poolClient = pool.addClient('WebClient', {
+      // Use `oAuth` to use the premade signin/signup frontend page
+      oAuth: {
+        flows: {
+          authorizationCodeGrant: true,
+        },
+        // scopes: [ cognito.OAuthScope.OPENID ],
+        callbackUrls: [ SIGNIN_REDIRECT_URI ],
+        logoutUrls: [ 'https://example.com/signin' ],
+      },
+      // NOTE: Use authFlows in case you would be using your own signin/signup frontend page
+      // authFlows: {
+      //   userSrp: true,
+      //   userPassword: true,
+      // }
+    });
+
+    const DOMAIN_PREFIX = 'cdk-asset-manager-dev'
+
+    // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_cognito-readme.html#domains
+    const userPoolDomain = pool.addDomain('AssetManagerDomain', {
+      cognitoDomain: { domainPrefix: DOMAIN_PREFIX }, // must be globally unique across ALL AWS accounts
+    });
+
+    // In case you are to use a separate stack for auth, you may use this approach:
+    // const myUserPoolDomain = cognito.UserPoolDomain.fromDomainName(this, 'my-user-pool-domain', 'domain-name');
+
+    // NOTE: This output is optional. This is added just so we can easily reference the hosted UI URL.
+    new cdk.CfnOutput(this, 'SignInUrl', {
+      value: userPoolDomain.signInUrl(poolClient, { redirectUri: SIGNIN_REDIRECT_URI }),
+    });
+
+    const authorizer = new HttpUserPoolAuthorizer('AssetManagerAuthorizer', pool, {
+      userPoolClients: [poolClient],
+    });
 
     // DynamoDB
     const table = new dynamodb.TableV2(this, 'AssetsTableV2', {
@@ -109,12 +161,18 @@ export class AssetManagerStack extends Stack {
     table.grantReadWriteData(deleteAssetFunction)
 
     // API Gateway
-    const httpApi = new apigwv2.HttpApi(this, 'HttpApi');
+    const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
+      defaultAuthorizer: authorizer, // add this to enforce Cognito auth
+    });
 
     httpApi.addRoutes({
       path: '/create-upload-url',
       methods: [ apigwv2.HttpMethod.POST ],
       integration: createPresignedUploadUrlLambdaIntegration,
+
+      // authorizer examples
+      // authorizer, // add this to enforce Cognito auth on a specific endpoint
+      // authorizer: new apigwv2.HttpNoneAuthorizer(),  // add this if the whole API is gated, and a particular endpoint needs to be public
     });
 
     new cdk.CfnOutput(this, 'HttpApiUrl', { value: httpApi.apiEndpoint });
