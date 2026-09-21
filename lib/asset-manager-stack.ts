@@ -1,5 +1,11 @@
 import { Duration, Stack, StackProps, RemovalPolicy } from 'aws-cdk-lib/core';
+
 import * as cdk from 'aws-cdk-lib/core';
+
+// APIGW v2
+import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';  // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigatewayv2-readme.html
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';  // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigatewayv2_integrations-readme.html
+
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
@@ -11,6 +17,12 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as path from 'path';
 
 import { Construct } from 'constructs';
+
+// NOTE: Conventional sequence in declaring constructs
+// - Data/storage first — S3, DynamoDB (things other resources will reference)
+// - Compute next — Lambdas that read those storage resources' names/ARNs
+// - Wiring/permissions — event notifications, grantX calls that connect compute to storage
+// - Entry points last — API Gateway (or CloudFront, etc.) — since it's the "front door" that ties together compute you've already declared
 
 export class AssetManagerStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -25,7 +37,7 @@ export class AssetManagerStack extends Stack {
     topic.addSubscription(new subs.SqsSubscription(queue));
 
     // DynamoDB
-    const table = new dynamodb.TableV2(this, 'AssetsTable', {
+    const table = new dynamodb.TableV2(this, 'AssetsTableV2', {
       partitionKey: { name: 'asset_key', type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(), // Serverless pay-per-request
       // removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -57,14 +69,16 @@ export class AssetManagerStack extends Stack {
     bucket.grantPut(getPresignedUploadUrlFunction);
     // NOTE: Use grantWrite if `delete` permission is needed
 
-    // TODO: Migrate to API Gateway
-    const getPresignedUploadUrlFunctionUrl = getPresignedUploadUrlFunction.addFunctionUrl({
-      authType: lambda.FunctionUrlAuthType.NONE,
-    });
+    // CfnOutput version. Comment out when using the APIGW2 Lambda Integration
+    // const createPresignedUploadUrlFunctionUrl = getPresignedUploadUrlFunction.addFunctionUrl({
+    //   authType: lambda.FunctionUrlAuthType.NONE,
+    // });
 
-    new cdk.CfnOutput(this, "getPresignedUploadUrlFunctionUrl", {
-      value: getPresignedUploadUrlFunctionUrl.url,
-    })
+    // new cdk.CfnOutput(this, "createPresignedUploadUrlFunctionUrl", {
+    //   value: createPresignedUploadUrlFunctionUrl.url,
+    // })
+
+    const createPresignedUploadUrlLambdaIntegration = new HttpLambdaIntegration('CreatePresignedUploadUrlFunctionUrl', getPresignedUploadUrlFunction);
 
     // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_s3_notifications-readme.html
 
@@ -93,5 +107,16 @@ export class AssetManagerStack extends Stack {
 
     table.grantReadWriteData(upsertAssetFunction)
     table.grantReadWriteData(deleteAssetFunction)
+
+    // API Gateway
+    const httpApi = new apigwv2.HttpApi(this, 'HttpApi');
+
+    httpApi.addRoutes({
+      path: '/create-upload-url',
+      methods: [ apigwv2.HttpMethod.POST ],
+      integration: createPresignedUploadUrlLambdaIntegration,
+    });
+
+    new cdk.CfnOutput(this, 'HttpApiUrl', { value: httpApi.apiEndpoint });
   }
 }
